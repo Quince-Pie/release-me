@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "host": "github",
+  "repository": "Quince-Pie/release-me",
+  "manifest": "SHA256SUMS",
+  "prefix": "release-me_{version}_",
+  "require": ["sigstore"],
+  "sigstore": {
+    "issuer": "https://token.actions.githubusercontent.com",
+    "identity": "https://github.com/Quince-Pie/release-me/.github/workflows/release.yml@refs/tags/{tag}"
+  },
+  "source": "git+https://github.com/Quince-Pie/release-me",
+  "reproduce": {
+    "command": "nix build .#release-assets --out-link rebuilt-assets",
+    "dir": "rebuilt-assets"
+  }
+}

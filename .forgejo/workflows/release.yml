@@ -1,0 +1,82 @@
+# Release pipeline for Forgejo (self-hosted or Codeberg). Same contract as
+# the GitHub pipeline, adapted to the platform: Forgejo Actions issues no
+# OIDC token the public Sigstore instance trusts, so the manifest and the
+# provenance are signed with an Ed25519 release key held as a repository
+# secret (RELEASE_SIGNING_KEY, an unencrypted OpenSSH private key) and
+# verified against allowed_signers; the job token has write access to the
+# repository's releases. The job runs on a runner with the "self-hosted:host"
+# label with Nix installed.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+jobs:
+  release:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout with full history and tags
+        env:
+          TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          rm -rf src && git init -q src && cd src
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          git -c "http.extraHeader=Authorization: Basic $auth" fetch -q --tags "$SERVER/$REPO.git" "+refs/heads/*:refs/remotes/origin/*"
+          git checkout -q "$REF"
+      - name: Build release-me
+        run: |
+          cd src && nix build .#release-me --print-build-logs --out-link tool
+      - name: Verify the release tag and extract the release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd src && tool/bin/release-me tag verify --tag "$TAG" --allowed-signers allowed_signers --branch origin/main --notes-out notes.md --json | tee tag.json
+      - name: Check, build and rebuild the release assets
+        run: |
+          cd src
+          nix flake check --print-build-logs
+          nix build .#release-assets --print-build-logs --out-link assets
+          nix build .#release-assets --rebuild
+          cp -r assets/. dist/ 2>/dev/null || { mkdir dist && cp -r assets/. dist/; }
+          chmod -R u+w dist
+      - name: Provenance and signatures (SSH, allowed_signers)
+        env:
+          TAG: ${{ github.ref_name }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          cd src
+          version="${TAG#v}"
+          umask 077 && printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+          tool/bin/release-me provenance \
+            --manifest dist/SHA256SUMS \
+            --source-uri "git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --commit "$(jq -r .commit tag.json)" --tag "$TAG" \
+            --build-command "nix build .#release-assets" \
+            --toolchain "go=https://go.dev/dl/go$(nix eval --raw .#goToolchain.version).linux-amd64.tar.gz" \
+            --toolchain "nixpkgs=github:NixOS/nixpkgs/$(jq -r .nodes.nixpkgs.locked.rev flake.lock)" \
+            --out "dist/release-me_${version}_provenance.intoto.json"
+          tool/bin/release-me sign sshsig --key "$RUNNER_TEMP/release.key" \
+            --allowed-signers allowed_signers --principal release-me-forgejo-ci \
+            dist/SHA256SUMS "dist/release-me_${version}_provenance.intoto.json"
+          rm -f "$RUNNER_TEMP/release.key"
+          ls -l dist/
+      - name: Create draft release, upload and check assets, publish
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          cd src && tool/bin/release-me publish --host forgejo --server "$SERVER" --repo "$REPO" \
+            --tag "$TAG" --commit "$(jq -r .commit tag.json)" --dir dist --notes-file notes.md --json | tee publish.json
+      - name: Verify as a recipient (fresh download, signatures, rebuild)
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd src && tool/bin/release-me verify --policy release-policy.forgejo.json --tag "$TAG" --reproduce --json

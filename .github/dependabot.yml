@@ -1,0 +1,28 @@
+# Keeps every pinned dependency current through pull requests that CI gates:
+# the SHA-pinned actions (Dependabot rewrites the commit and the trailing
+# "# vX.Y.Z" comment), the Go module graph, and the flake.lock inputs. The Go
+# toolchain and the Nix installer are pinned by hash in nix/go-toolchain.nix
+# and scripts/install-nix.sh and are bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+  - package-ecosystem: nix
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3

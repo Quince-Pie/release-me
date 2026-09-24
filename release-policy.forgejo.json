@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "host": "forgejo",
+  "server": "http://127.0.0.1:3000",
+  "repository": "maintainer/release-me",
+  "manifest": "SHA256SUMS",
+  "prefix": "release-me_{version}_",
+  "require": ["sshsig"],
+  "sshsig": {
+    "allowed_signers": "allowed_signers",
+    "principal": "release-me-forgejo-ci",
+    "namespace": "release"
+  },
+  "source": "git+http://127.0.0.1:3000/maintainer/release-me",
+  "reproduce": {
+    "command": "nix build .#release-assets --out-link rebuilt-assets",
+    "dir": "rebuilt-assets"
+  }
+}

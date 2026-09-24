@@ -1,0 +1,7 @@
+# OpenSSH allowed-signers file (ssh-keygen -Y). One line per key:
+#   <principal> [options] <key-type> <base64-key> [comment]
+# Keys with namespaces="git" may sign release tags (release-me tag verify).
+# Keys with namespaces="release" may sign the SHA256SUMS manifest and the
+# provenance statement of a release (release-me sign sshsig / verify).
+pie@quince.org namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK0ff9n836vVCsW39iz9mKxrzga+vme50EwOirBTkOpi QuincePie
+release-me-forgejo-ci namespaces="release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsVgTMrTTYi5XSQezDIzzDguv8GSHze07k0Xfd9FZ8Q release-me-forgejo-ci

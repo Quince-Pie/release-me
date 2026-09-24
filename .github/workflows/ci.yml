@@ -1,0 +1,86 @@
+# Continuous integration: everything `nix flake check` covers (build, tests,
+# vet, formatting, changelog structure, shell and workflow linting) plus the
+# release assets built and rebuilt for determinism on two CPU architectures,
+# whose outputs must be identical.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Authenticated fetches of github: flake inputs avoid the shared rate limit.
+  NIX_CONFIG: "access-tokens = github.com=${{ github.token }}"
+
+jobs:
+  check:
+    name: nix flake check
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-26.04, ubuntu-26.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read # checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Nix (pinned, first-party)
+        run: scripts/install-nix.sh
+      - name: Check
+        run: nix flake check --print-build-logs
+      - name: Build release assets
+        run: nix build .#release-assets --print-build-logs --out-link assets
+      - name: Rebuild and require identical output
+        run: nix build .#release-assets --rebuild
+      - name: Upload assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: assets-${{ matrix.runner }}
+          path: assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  reproducible:
+    name: Cross-architecture reproducibility
+    needs: check
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Download assets from both builders
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: assets-*
+      - name: Compare
+        run: |
+          diff assets-ubuntu-26.04/SHA256SUMS assets-ubuntu-26.04-arm/SHA256SUMS
+          echo "x86_64 and arm64 builders produced identical release assets:"
+          cat assets-ubuntu-26.04/SHA256SUMS
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Nix (pinned, first-party)
+        run: scripts/install-nix.sh
+      - name: Scan for known vulnerabilities reachable from the code
+        run: nix develop --command govulncheck ./...
