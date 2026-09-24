@@ -9,6 +9,8 @@ the binary and the release tag are validated against it.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-24
+
 ### Added
 
 - `release-me`, a single-binary release tool for GitHub and Forgejo-family
@@ -19,4 +21,5 @@ the binary and the release tag are validated against it.
   recipient-side `verify` command with an explicit trust policy and an
   optional byte-for-byte rebuild.
 
-[Unreleased]: https://github.com/Quince-Pie/release-me/compare/HEAD...HEAD
+[Unreleased]: https://github.com/Quince-Pie/release-me/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Quince-Pie/release-me/releases/tag/v0.1.0
