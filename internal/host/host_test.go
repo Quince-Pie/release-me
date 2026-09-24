@@ -1,4 +1,4 @@
-package host_test
+package host
 
 import (
 	"bytes"
@@ -11,19 +11,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Quince-Pie/release-me/internal/host"
 	"github.com/Quince-Pie/release-me/internal/host/fake"
 )
 
-func newClient(token string) *host.Client {
-	return &host.Client{
+func newClient(token string) *Client {
+	return &Client{
 		HTTP: &http.Client{Timeout: 10 * time.Second}, Token: token, UserAgent: "test",
-		Clock: host.Clock{Now: time.Now, Sleep: func(context.Context, time.Duration) error { return nil }},
+		Clock: Clock{Now: time.Now, Sleep: func(context.Context, time.Duration) error { return nil }},
 	}
 }
 
 func hosts(t *testing.T) map[string]struct {
-	h host.Host
+	h Host
 	s *fake.Server
 } {
 	gh := fake.New(fake.GitHub, "o", "r", "tok")
@@ -33,11 +32,11 @@ func hosts(t *testing.T) map[string]struct {
 	gh.Tags["v1.0.0"] = "c0ffee"
 	fj.Tags["v1.0.0"] = "c0ffee"
 	return map[string]struct {
-		h host.Host
+		h Host
 		s *fake.Server
 	}{
-		"github":  {host.NewGitHub(newClient("tok"), gh.URL(), gh.URL(), gh.URL(), "o", "r"), gh},
-		"forgejo": {host.NewForgejo(newClient("tok"), fj.URL(), "o", "r"), fj},
+		"github":  {NewGitHub(newClient("tok"), gh.URL(), gh.URL(), gh.URL(), "o", "r"), gh},
+		"forgejo": {NewForgejo(newClient("tok"), fj.URL(), "o", "r"), fj},
 	}
 }
 
@@ -54,13 +53,13 @@ func TestLifecycle(t *testing.T) {
 			if c, err := h.TagCommit(ctx, "v1.0.0"); err != nil || c != "c0ffee" {
 				t.Fatalf("TagCommit: %s %v", c, err)
 			}
-			if _, err := h.TagCommit(ctx, "v9.9.9"); !host.IsNotFound(err) {
+			if _, err := h.TagCommit(ctx, "v9.9.9"); !IsNotFound(err) {
 				t.Fatalf("missing tag: %v", err)
 			}
-			if _, err := h.FindRelease(ctx, "v1.0.0"); !host.IsNotFound(err) {
+			if _, err := h.FindRelease(ctx, "v1.0.0"); !IsNotFound(err) {
 				t.Fatalf("FindRelease before create: %v", err)
 			}
-			rel, err := h.CreateDraft(ctx, host.CreateParams{Tag: "v1.0.0", Name: "v1.0.0", Body: "notes", Commit: "c0ffee"})
+			rel, err := h.CreateDraft(ctx, CreateParams{Tag: "v1.0.0", Name: "v1.0.0", Body: "notes", Commit: "c0ffee"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -98,7 +97,7 @@ func TestLifecycle(t *testing.T) {
 			if err != nil || len(list) != 1 {
 				t.Fatalf("Assets: %v %v", list, err)
 			}
-			pub, err := h.Publish(ctx, rel, host.PublishParams{Latest: true})
+			pub, err := h.Publish(ctx, rel, PublishParams{Latest: true})
 			if err != nil || pub.Draft {
 				t.Fatalf("Publish: %+v %v", pub, err)
 			}
@@ -114,7 +113,7 @@ func TestLifecycle(t *testing.T) {
 			if err := h.DeleteRelease(ctx, rel); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := h.FindRelease(ctx, "v1.0.0"); !host.IsNotFound(err) {
+			if _, err := h.FindRelease(ctx, "v1.0.0"); !IsNotFound(err) {
 				t.Fatalf("after delete: %v", err)
 			}
 		})
@@ -128,12 +127,12 @@ func TestPlatformDifferences(t *testing.T) {
 	data := []byte("d")
 
 	// GitHub rejects a duplicate name with 422; Forgejo silently accepts it.
-	rel, _ := gh.h.CreateDraft(ctx, host.CreateParams{Tag: "v1.0.0", Commit: "c0ffee"})
+	rel, _ := gh.h.CreateDraft(ctx, CreateParams{Tag: "v1.0.0", Commit: "c0ffee"})
 	gh.h.Upload(ctx, rel, "a", "application/octet-stream", 1, bytes.NewReader(data))
-	if _, err := gh.h.Upload(ctx, rel, "a", "application/octet-stream", 1, bytes.NewReader(data)); !host.IsStatus(err, 422) {
+	if _, err := gh.h.Upload(ctx, rel, "a", "application/octet-stream", 1, bytes.NewReader(data)); !IsStatus(err, 422) {
 		t.Errorf("github duplicate: %v", err)
 	}
-	frel, _ := fj.h.CreateDraft(ctx, host.CreateParams{Tag: "v1.0.0", Commit: "c0ffee"})
+	frel, _ := fj.h.CreateDraft(ctx, CreateParams{Tag: "v1.0.0", Commit: "c0ffee"})
 	fj.h.Upload(ctx, frel, "a", "application/octet-stream", 1, bytes.NewReader(data))
 	if _, err := fj.h.Upload(ctx, frel, "a", "application/octet-stream", 1, bytes.NewReader(data)); err != nil {
 		t.Errorf("forgejo duplicate should be accepted by the platform: %v", err)
@@ -142,11 +141,11 @@ func TestPlatformDifferences(t *testing.T) {
 		t.Errorf("forgejo should now hold two assets named a: %v", list)
 	}
 	// Forgejo: one release per tag.
-	if _, err := fj.h.CreateDraft(ctx, host.CreateParams{Tag: "v1.0.0", Commit: "c0ffee"}); !host.IsStatus(err, 409) {
+	if _, err := fj.h.CreateDraft(ctx, CreateParams{Tag: "v1.0.0", Commit: "c0ffee"}); !IsStatus(err, 409) {
 		t.Errorf("forgejo second release: %v", err)
 	}
 	// GitHub: a second draft for the same tag is allowed by the platform.
-	if _, err := gh.h.CreateDraft(ctx, host.CreateParams{Tag: "v1.0.0", Commit: "c0ffee"}); err != nil {
+	if _, err := gh.h.CreateDraft(ctx, CreateParams{Tag: "v1.0.0", Commit: "c0ffee"}); err != nil {
 		t.Errorf("github second draft: %v", err)
 	}
 	// Limits.
@@ -181,7 +180,7 @@ func TestRetriesAndFaults(t *testing.T) {
 			// Persistent 500 gives up after bounded attempts.
 			s.AddFault(fake.Fault{Method: "GET", PathPart: "/tags/v1.0.0", Status: 500, Remaining: 100})
 			before := s.Count("GET")
-			if _, err := h.TagCommit(ctx, "v1.0.0"); err == nil || !host.IsStatus(err, 500) {
+			if _, err := h.TagCommit(ctx, "v1.0.0"); err == nil || !IsStatus(err, 500) {
 				t.Fatalf("persistent 500: %v", err)
 			}
 			if n := s.Count("GET") - before; n != 5 {
@@ -189,7 +188,7 @@ func TestRetriesAndFaults(t *testing.T) {
 			}
 			// A POST is never retried blindly: a dropped connection surfaces as an error.
 			s.AddFault(fake.Fault{Method: "POST", PathPart: "/releases", Drop: true, Remaining: 100})
-			if _, err := h.CreateDraft(ctx, host.CreateParams{Tag: "v1.0.0", Commit: "c0ffee"}); err == nil {
+			if _, err := h.CreateDraft(ctx, CreateParams{Tag: "v1.0.0", Commit: "c0ffee"}); err == nil {
 				t.Fatal("dropped POST reported success")
 			}
 		})
@@ -203,7 +202,7 @@ func TestPagination(t *testing.T) {
 			hs.s.PageSize = 2
 			for _, tag := range []string{"v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0", "v1.4.0"} {
 				hs.s.Tags[tag] = "c"
-				if _, err := hs.h.CreateDraft(ctx, host.CreateParams{Tag: tag, Commit: "c"}); err != nil {
+				if _, err := hs.h.CreateDraft(ctx, CreateParams{Tag: tag, Commit: "c"}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -220,16 +219,31 @@ func TestPagination(t *testing.T) {
 
 func TestSnappy(t *testing.T) {
 	// "hello" as one literal; "abababab" as literal "ab" + copy(offset 2, length 6).
-	if got, err := host.DecodeSnappy([]byte{0x05, 0x10, 'h', 'e', 'l', 'l', 'o'}); err != nil || string(got) != "hello" {
+	if got, err := DecodeSnappy([]byte{0x05, 0x10, 'h', 'e', 'l', 'l', 'o'}); err != nil || string(got) != "hello" {
 		t.Errorf("literal: %q %v", got, err)
 	}
-	if got, err := host.DecodeSnappy([]byte{0x08, 0x04, 'a', 'b', 0x09, 0x02}); err != nil || string(got) != "abababab" {
+	if got, err := DecodeSnappy([]byte{0x08, 0x04, 'a', 'b', 0x09, 0x02}); err != nil || string(got) != "abababab" {
 		t.Errorf("copy: %q %v", got, err)
 	}
 	for _, bad := range [][]byte{{}, {0x05, 0x10, 'h'}, {0x02, 0x09, 0x05}, {0x01, 0x10, 'h', 'e'}} {
-		if _, err := host.DecodeSnappy(bad); err == nil {
+		if _, err := DecodeSnappy(bad); err == nil {
 			t.Errorf("accepted %v", bad)
 		}
 	}
 	_ = strings.Repeat
+}
+
+func TestTokenRedactedFromErrors(t *testing.T) {
+	s := fake.New(fake.Forgejo, "o", "r", "tok")
+	t.Cleanup(s.Close)
+	c := newClient("secret-token-value")
+	s.AddFault(fake.Fault{Method: "GET", PathPart: "/tags/", Status: 401, Remaining: 1})
+	// The fake answers "injected fault"; simulate an echoing server by
+	// checking that a body containing the token would be masked.
+	req, _ := http.NewRequest(http.MethodGet, s.URL()+"/api/v1/repos/o/r/tags/x", nil)
+	resp := &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"message":"bad token secret-token-value"}`)), Request: req}
+	err := c.readError(req, resp)
+	if err == nil || strings.Contains(err.Error(), "secret-token-value") || !strings.Contains(err.Error(), "***") {
+		t.Fatalf("token not redacted: %v", err)
+	}
 }

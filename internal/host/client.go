@@ -167,7 +167,7 @@ func (c *Client) DoIdempotent(ctx context.Context, method, url string, body []by
 		if err != nil {
 			lastErr = err
 		} else {
-			lastErr = readError(req, resp)
+			lastErr = c.readError(req, resp)
 		}
 		if attempt == c.attempts() {
 			break
@@ -187,15 +187,21 @@ func (c *Client) DoIdempotent(ctx context.Context, method, url string, body []by
 	return nil, lastErr
 }
 
-// readError drains a failed response into an APIError.
-func readError(req *http.Request, resp *http.Response) error {
+// readError drains a failed response into an APIError. Any occurrence of
+// the credential in the body is redacted: some platforms echo a rejected
+// token in their error message.
+func (c *Client) readError(req *http.Request, resp *http.Response) error {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	ae := &APIError{Method: req.Method, URL: req.URL.String(), Status: resp.StatusCode, Body: string(b)}
+	body := string(b)
+	if c.Token != "" {
+		body = strings.ReplaceAll(body, c.Token, "***")
+	}
+	ae := &APIError{Method: req.Method, URL: req.URL.String(), Status: resp.StatusCode, Body: body}
 	var m struct {
 		Message string `json:"message"`
 	}
-	if json.Unmarshal(b, &m) == nil {
+	if json.Unmarshal([]byte(body), &m) == nil {
 		ae.Message = m.Message
 	}
 	return ae
@@ -218,7 +224,7 @@ func (c *Client) JSON(ctx context.Context, method, url string, in, out any) erro
 	if err != nil {
 		return err
 	}
-	return decode(method, url, resp, out)
+	return c.decode(method, url, resp, out)
 }
 
 // PostJSON performs a NON-idempotent POST exactly once.
@@ -236,17 +242,17 @@ func (c *Client) PostJSON(ctx context.Context, url string, in, out any) error {
 	if err != nil {
 		return err
 	}
-	return decode(http.MethodPost, url, resp, out)
+	return c.decode(http.MethodPost, url, resp, out)
 }
 
-func decode(method, url string, resp *http.Response, out any) error {
+func (c *Client) decode(method, url string, resp *http.Response, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("%s %s: %w", method, url, ErrNotFound)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return readError(&http.Request{Method: method, URL: resp.Request.URL}, resp)
+		return c.readError(&http.Request{Method: method, URL: resp.Request.URL}, resp)
 	}
 	if out == nil {
 		_, err := io.Copy(io.Discard, resp.Body)
@@ -281,14 +287,14 @@ func (c *Client) Stream(ctx context.Context, url string, accept string) (io.Read
 				return nil, fmt.Errorf("GET %s: %w", url, ErrNotFound)
 			}
 			if resp.StatusCode < 200 || resp.StatusCode > 299 {
-				return nil, readError(req, resp)
+				return nil, c.readError(req, resp)
 			}
 			return resp.Body, nil
 		}
 		if err != nil {
 			lastErr = err
 		} else {
-			lastErr = readError(req, resp)
+			lastErr = c.readError(req, resp)
 		}
 		if attempt == c.attempts() {
 			break

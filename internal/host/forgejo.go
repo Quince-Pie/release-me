@@ -178,7 +178,7 @@ func (f *Forgejo) Upload(ctx context.Context, rel *Release, name, contentType st
 		return nil, err
 	}
 	var a fjAsset
-	if err := decode(http.MethodPost, u, resp, &a); err != nil {
+	if err := f.c.decode(http.MethodPost, u, resp, &a); err != nil {
 		return nil, err
 	}
 	asset := a.toAsset()

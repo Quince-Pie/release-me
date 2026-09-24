@@ -175,7 +175,7 @@ func (g *GitHub) ListReleases(ctx context.Context) ([]Release, error) {
 		}
 		var page []ghRelease
 		link := nextPage(resp.Header)
-		if err := decode(http.MethodGet, next, resp, &page); err != nil {
+		if err := g.c.decode(http.MethodGet, next, resp, &page); err != nil {
 			return nil, err
 		}
 		for _, r := range page {
@@ -208,7 +208,7 @@ func (g *GitHub) Assets(ctx context.Context, rel *Release) ([]Asset, error) {
 		}
 		var page []ghAsset
 		link := nextPage(resp.Header)
-		if err := decode(http.MethodGet, next, resp, &page); err != nil {
+		if err := g.c.decode(http.MethodGet, next, resp, &page); err != nil {
 			return nil, err
 		}
 		for _, a := range page {
@@ -235,7 +235,7 @@ func (g *GitHub) Upload(ctx context.Context, rel *Release, name, contentType str
 		return nil, err
 	}
 	var a ghAsset
-	if err := decode(http.MethodPost, u, resp, &a); err != nil {
+	if err := g.c.decode(http.MethodPost, u, resp, &a); err != nil {
 		return nil, err
 	}
 	asset := a.toAsset()

@@ -142,7 +142,16 @@ func cmdVerify(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	token := envOr("RELEASE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "FORGEJO_TOKEN")
+	// A token is optional (it raises API rate limits); never send another
+	// platform's token to a host.
+	token := envOr("RELEASE_TOKEN")
+	if token == "" {
+		if p.Host == "github" {
+			token = envOr("GITHUB_TOKEN", "GH_TOKEN")
+		} else {
+			token = envOr("FORGEJO_TOKEN", "GITEA_TOKEN", "CODEBERG_TOKEN")
+		}
+	}
 	report, err := verify.Run(ctx, verify.Options{Policy: p, Tag: *tag, Dir: *dir, Token: token, Reproduce: *reproduce, RepoDir: *repoDir, CacheDir: *cache, Logf: logf})
 	if err != nil {
 		return err
