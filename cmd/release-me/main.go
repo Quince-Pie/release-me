@@ -104,3 +104,20 @@ func splitRepo(s string) (owner, repo string, err error) {
 	}
 	return owner, repo, nil
 }
+
+// parseInterspersed parses flags that may appear before, between or after
+// positional arguments (the standard library stops at the first
+// non-flag), returning the positional arguments in order.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return positional, nil
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+}

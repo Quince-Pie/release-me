@@ -12,14 +12,13 @@ import (
 
 	"github.com/Quince-Pie/release-me/internal/host"
 	"github.com/Quince-Pie/release-me/internal/intoto"
-	"github.com/Quince-Pie/release-me/internal/manifest"
 	"github.com/Quince-Pie/release-me/internal/sigstore"
 	"github.com/Quince-Pie/release-me/internal/sshsig"
 	"github.com/Quince-Pie/release-me/internal/verify"
 )
 
 func cmdProvenance(_ context.Context, args []string) error {
-	fs := flagSet("provenance", "provenance --manifest FILE --source-uri git+URL --commit SHA --tag vX --builder ID --out FILE [--platform P] [--build-command CMD] [--toolchain k=v]... [--started T --finished T]")
+	fs := flagSet("provenance", "provenance --manifest FILE --source-uri git+URL --commit SHA --tag vX --out FILE [--builder ID] [--platform P] [--build-command CMD] [--toolchain k=v]... [--started T --finished T]")
 	mpath := fs.String("manifest", "SHA256SUMS", "manifest whose entries become the subjects")
 	sourceURI := fs.String("source-uri", "", "source URI, e.g. git+https://github.com/o/r (\"@refs/tags/TAG\" is appended)")
 	commit := fs.String("commit", "", "source commit")
@@ -33,7 +32,7 @@ func cmdProvenance(_ context.Context, args []string) error {
 	out := fs.String("out", "", "statement file to write")
 	var toolchain multiFlag
 	fs.Var(&toolchain, "toolchain", "toolchain pin as name=uri (repeatable)")
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterspersed(fs, args); err != nil {
 		return err
 	}
 	if *sourceURI == "" || *commit == "" || *tag == "" || *out == "" {
@@ -108,6 +107,7 @@ func detectCI() ciInfo {
 	if server == "" || repo == "" {
 		return ciInfo{platform: "local"}
 	}
+	server = strings.TrimRight(server, "/")
 	platform := "github"
 	if os.Getenv("GITEA_ACTIONS") == "true" || os.Getenv("FORGEJO_TOKEN") != "" || os.Getenv("GITHUB_ACTIONS") != "true" {
 		platform = "forgejo"
@@ -148,10 +148,11 @@ func signSSH(_ context.Context, args []string) error {
 	ns := fs.String("namespace", verify.SSHSigNamespace, "signature namespace")
 	signers := fs.String("allowed-signers", "", "verify the new signature against this allowed-signers file before writing it")
 	principal := fs.String("principal", "", "principal to verify as")
-	if err := fs.Parse(args); err != nil {
+	files, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
-	if *key == "" || fs.NArg() == 0 {
+	if *key == "" || len(files) == 0 {
 		fs.Usage()
 		return errors.New("sign sshsig: --key and at least one file are required")
 	}
@@ -173,7 +174,7 @@ func signSSH(_ context.Context, args []string) error {
 			return err
 		}
 	}
-	for _, path := range fs.Args() {
+	for _, path := range files {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -190,17 +191,13 @@ func signSSH(_ context.Context, args []string) error {
 		if err := os.WriteFile(path+verify.SignatureSuffix, sig, 0o644); err != nil {
 			return err
 		}
-		logf("signed %s (%s)", path, sshsigFingerprint(signer))
+		logf("signed %s (%s)", path, sshsig.Fingerprint(signer.PublicKey()))
 	}
 	return nil
 }
 
-func sshsigFingerprint(s interface{ PublicKey() sshPublicKey }) string {
-	return sshsig.Fingerprint(s.PublicKey())
-}
-
 func signSigstore(ctx context.Context, args []string) error {
-	fs := flagSet("sign sigstore", "sign sigstore --statement FILE --out FILE [--github-actions | --id-token-file FILE] [--timestamp] [--store-github OWNER/REPO]")
+	fs := flagSet("sign sigstore", "sign sigstore --statement FILE --out FILE [--github-actions | --id-token-file FILE] [--timestamp=false] [--store-github OWNER/REPO]")
 	statement := fs.String("statement", "", "in-toto statement to sign")
 	out := fs.String("out", "", "bundle file to write")
 	gha := fs.Bool("github-actions", false, "obtain the OIDC token from the GitHub Actions runtime")
@@ -208,7 +205,7 @@ func signSigstore(ctx context.Context, args []string) error {
 	timestamp := fs.Bool("timestamp", true, "also request an RFC 3161 timestamp (verifiers that do not read Rekor timestamps need it)")
 	store := fs.String("store-github", "", "also store the bundle in this GitHub repository's attestations (needs GITHUB_TOKEN with attestations: write)")
 	cache := fs.String("cache-dir", envOr("RELEASE_ME_TUF_CACHE"), "TUF cache directory")
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterspersed(fs, args); err != nil {
 		return err
 	}
 	if *statement == "" || *out == "" {
@@ -260,7 +257,6 @@ func signSigstore(ctx context.Context, args []string) error {
 		}
 		logf("stored attestation %d in %s/%s", id, owner, repo)
 	}
-	_ = manifest.FileName
 	return nil
 }
 
@@ -268,7 +264,7 @@ func cmdTrustedRoot(_ context.Context, args []string) error {
 	fs := flagSet("trusted-root", "trusted-root --out FILE")
 	out := fs.String("out", "trusted_root.json", "file to write")
 	cache := fs.String("cache-dir", envOr("RELEASE_ME_TUF_CACHE"), "TUF cache directory")
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterspersed(fs, args); err != nil {
 		return err
 	}
 	data, err := sigstore.TrustedRootJSON(*cache)

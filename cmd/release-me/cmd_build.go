@@ -27,10 +27,11 @@ func cmdPack(_ context.Context, args []string) error {
 	fs := flagSet("pack", "pack --out FILE.tar.gz|FILE.zip --mtime EPOCH|RFC3339 [NAME=]PATH...")
 	out := fs.String("out", "", "archive to write; the extension selects tar.gz or zip")
 	mtime := fs.String("mtime", envOr("SOURCE_DATE_EPOCH"), "modification time for every member (default $SOURCE_DATE_EPOCH)")
-	if err := fs.Parse(args); err != nil {
+	files, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
-	if *out == "" || fs.NArg() == 0 || *mtime == "" {
+	if *out == "" || len(files) == 0 || *mtime == "" {
 		fs.Usage()
 		return errors.New("pack: --out, --mtime and at least one file are required")
 	}
@@ -39,7 +40,7 @@ func cmdPack(_ context.Context, args []string) error {
 		return fmt.Errorf("pack: --mtime: %v", err)
 	}
 	var entries []archive.Entry
-	for _, a := range fs.Args() {
+	for _, a := range files {
 		name, path, ok := strings.Cut(a, "=")
 		if !ok {
 			path, name = a, filepath.Base(a)
@@ -60,31 +61,33 @@ func cmdManifest(_ context.Context, args []string) error {
 	case "create":
 		fs := flagSet("manifest create", "manifest create [--out NAME] DIR")
 		out := fs.String("out", manifest.FileName, "manifest file name, written inside DIR")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 1 {
-			return errors.New("manifest create: one directory expected")
-		}
-		m, err := manifest.FromDir(fs.Arg(0))
+		dirs, err := parseInterspersed(fs, args[1:])
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(fs.Arg(0), *out), m.Bytes(), 0o644)
+		if len(dirs) != 1 {
+			return errors.New("manifest create: one directory expected")
+		}
+		m, err := manifest.FromDir(dirs[0])
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dirs[0], *out), m.Bytes(), 0o644)
 	case "check":
 		fs := flagSet("manifest check", "manifest check [--name NAME] DIR")
 		name := fs.String("name", manifest.FileName, "manifest file name inside DIR")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 1 {
-			return errors.New("manifest check: one directory expected")
-		}
-		m, err := loadManifest(filepath.Join(fs.Arg(0), *name))
+		dirs, err := parseInterspersed(fs, args[1:])
 		if err != nil {
 			return err
 		}
-		if err := m.Check(fs.Arg(0)); err != nil {
+		if len(dirs) != 1 {
+			return errors.New("manifest check: one directory expected")
+		}
+		m, err := loadManifest(filepath.Join(dirs[0], *name))
+		if err != nil {
+			return err
+		}
+		if err := m.Check(dirs[0]); err != nil {
 			return err
 		}
 		fmt.Printf("%d files match %s\n", len(m.Entries), *name)
@@ -120,14 +123,15 @@ func loadManifest(path string) (*manifest.Manifest, error) {
 }
 
 func cmdChangelog(_ context.Context, args []string) error {
-	fs := flagSet("changelog", "changelog [--file CHANGELOG.md] lint | latest | section VERSION | release VERSION [--date YYYY-MM-DD] [--compare-url URL]")
+	fs := flagSet("changelog", "changelog [--file CHANGELOG.md] lint | latest | section VERSION | release VERSION [--date YYYY-MM-DD] --compare-url URL")
 	file := fs.String("file", "CHANGELOG.md", "changelog file")
 	date := fs.String("date", time.Now().UTC().Format("2006-01-02"), "release date for 'release'")
 	compare := fs.String("compare-url", "", "compare URL template for 'release', e.g. https://github.com/o/r/compare/{from}...{to}")
-	if err := fs.Parse(args); err != nil {
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() == 0 {
+	if len(pos) == 0 {
 		fs.Usage()
 		return errors.New("changelog: subcommand required")
 	}
@@ -139,7 +143,7 @@ func cmdChangelog(_ context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	switch fs.Arg(0) {
+	switch pos[0] {
 	case "lint":
 		if err := c.Lint(); err != nil {
 			return fmt.Errorf("%s:\n%v", *file, err)
@@ -154,10 +158,10 @@ func cmdChangelog(_ context.Context, args []string) error {
 		fmt.Println(r.Version)
 		return nil
 	case "section":
-		if fs.NArg() != 2 {
+		if len(pos) != 2 {
 			return errors.New("changelog section: VERSION expected")
 		}
-		v, err := semver.Parse(strings.TrimPrefix(fs.Arg(1), "v"))
+		v, err := semver.Parse(strings.TrimPrefix(pos[1], "v"))
 		if err != nil {
 			return err
 		}
@@ -168,10 +172,10 @@ func cmdChangelog(_ context.Context, args []string) error {
 		fmt.Println(body)
 		return nil
 	case "release":
-		if fs.NArg() != 2 {
+		if len(pos) != 2 {
 			return errors.New("changelog release: VERSION expected")
 		}
-		v, err := semver.Parse(strings.TrimPrefix(fs.Arg(1), "v"))
+		v, err := semver.Parse(strings.TrimPrefix(pos[1], "v"))
 		if err != nil {
 			return err
 		}
@@ -199,5 +203,5 @@ func cmdChangelog(_ context.Context, args []string) error {
 		}
 		return os.WriteFile(*file, []byte(out), 0o644)
 	}
-	return fmt.Errorf("changelog: unknown subcommand %q", fs.Arg(0))
+	return fmt.Errorf("changelog: unknown subcommand %q", pos[0])
 }
