@@ -38,6 +38,7 @@
 | `publish` reports "already published with identical assets" | A rerun after success | Nothing to do; this is the idempotent path. |
 | The publish call itself timed out | Uncertain outcome | The tool re-reads the release; if it is published it reports success. A rerun is safe either way. |
 | `verify` job fails after publish | The published release does not verify as a recipient would see it | Treat as a broken release: publish the next version. Do not edit the release. |
+| `publish` on Forgejo fails with "cannot check stored asset … (the token must be able to download draft assets)" | The token cannot read draft attachments: the Actions job token is not accepted on the download route | Publish with an API token that has `write:repository` (the `RELEASE_TOKEN` secret in the reference pipeline). |
 | A signing key must be rotated | Key compromise or scheduled rotation | Add the new key to `allowed_signers`, set `valid-before` on the old one (or list it in `revoked_keys`), commit; recipients who pin `allowed_signers` must update their copy. For the Forgejo CI key, replace the `RELEASE_SIGNING_KEY` secret. |
 | Sigstore/TUF unavailable during signing or verification | Network or infrastructure outage | Signing fails closed (retry later). Verification can use a pinned `trusted_root.json` and the bundle asset (`docs/VERIFY.md`). |
 

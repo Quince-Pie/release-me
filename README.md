@@ -30,6 +30,10 @@ or with standard tools only (cosign, gh, ssh-keygen, sha256sum): see
    file with your maintainers' SSH public keys (`namespaces="git"`) and,
    for Forgejo, the CI signing key (`namespaces="release"`), and a
    `release-policy.*.json` describing what recipients should require.
+   Forgejo repositories need two secrets: `RELEASE_SIGNING_KEY` (the CI
+   key, an unencrypted OpenSSH private key) and `RELEASE_TOKEN` (an API
+   token with `write:repository`, because the Actions job token cannot read
+   draft attachments back for checking).
 2. Add the workflows: [`.github/workflows/release.yml`](.github/workflows/release.yml)
    for GitHub and [`.forgejo/workflows/release.yml`](.forgejo/workflows/release.yml)
    for Forgejo/Codeberg. Point their build steps at your own build command;

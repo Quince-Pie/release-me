@@ -197,12 +197,41 @@ GitHub's `POST /repos/{o}/{r}/attestations` validates the SLSA
 `https://actions.github.io/buildtypes/workflow/v1` with the release inputs
 under `externalParameters.release`. Result of the re-run: see E8.
 
-### E8. Live pipelines (to be completed by the runs in progress)
+### E8. Live pipelines
 
-- GitHub: CI on the delivered revision; Sigstore smoke with the GitHub
-  build type; first release `v0.1.0` through `.github/workflows/release.yml`.
-- Forgejo 16.0.4 (local instance, self-hosted runner, host executor):
-  `.forgejo/workflows/release.yml` on tag `v0.0.1` of a throwaway branch.
+- **Forgejo 16.0.4, self-hosted runner (host executor), local instance.**
+  Run 2 of `.forgejo/workflows/release.yml` on tag `v0.0.1` of a throwaway
+  branch (commit ed57967b) succeeded in 42 s wall-clock with a warm Nix
+  store: tag verified (signed by `pie@quince.org`), `nix flake check`,
+  build and `--rebuild`, SSH signatures over `SHA256SUMS` and the provenance
+  by the CI key, draft release 4 created, ten assets uploaded, every asset
+  re-downloaded and matched, published, then `verify --reproduce` inside
+  the job. Run 1 had failed at the re-download step because the Actions job
+  token is not accepted on the attachment download route (fixed by the
+  `RELEASE_TOKEN` secret and by making download failures fatal).
+  From outside the runner, `release-me verify --policy
+  release-policy.forgejo.json --tag v0.0.1 --reproduce` in a fresh worktree
+  reported: 6 assets match `SHA256SUMS`; manifest and provenance signed by
+  `release-me-forgejo-ci` (SHA256:8waV0ltf…); provenance for
+  `git+http://127.0.0.1:3000/maintainer/release-me@refs/tags/v0.0.1` at
+  ed57967b built by the Forgejo workflow identity; **rebuilt assets
+  byte-identical to the published ones**. Standard tools agree:
+  `ssh-keygen -Y verify` prints `Good "release" signature for
+  release-me-forgejo-ci`, and `git verify-tag` with the same
+  `allowed_signers` prints `Good "git" signature for pie@quince.org`.
+- **GitHub, keyless signing and attestation index.** Smoke run 36043117035
+  (tag `smoke-1`, commit 4db9802, 82 s): `release-me sign sigstore
+  --github-actions --store-github` produced a
+  `application/vnd.dev.sigstore.bundle.v0.3+json` bundle with one Rekor v1
+  entry and one RFC 3161 timestamp over a GitHub-build-type provenance
+  statement, stored it as attestation 49955023, and both `cosign
+  verify-blob-attestation … --type slsaprovenance1` (`Verified OK`) and `gh
+  attestation verify --repo Quince-Pie/release-me --cert-identity …` accepted
+  it; the public endpoint `GET /repos/Quince-Pie/release-me/attestations/
+  sha256:<digest>` returns the bundle. The earlier attempt with this tool's
+  own build type was refused by the index (E7).
+- **GitHub, first release.** Recorded in the addendum at the end of this
+  file after `v0.1.0` was published through `.github/workflows/release.yml`.
 
 ### E9. Request budget of a publication (fake hosts, 8 assets)
 

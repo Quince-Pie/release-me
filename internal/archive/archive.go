@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -202,7 +203,7 @@ func WriteFile(dest string, entries []Entry, mtime time.Time) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(path.Dir(dest), ".pack-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".pack-*")
 	if err != nil {
 		return err
 	}
