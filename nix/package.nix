@@ -33,7 +33,7 @@ let
       pname = "release-me-modules";
       inherit version src;
       proxyVendor = true;
-      vendorHash = "sha256-q4hyMoNqopTfuX2Zo/OH6YK8ROxhMWvF3kke3eC/ewo=";
+      vendorHash = "sha256-slht3YE66Yt7pWRaScTyMFQo+IvuroLYpnCgEJ+YlcY=";
     }).goModules;
 in
 stdenvNoCC.mkDerivation {
