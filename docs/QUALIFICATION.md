@@ -282,3 +282,33 @@ reason in `.govulncheck-allow`; grpc was bumped past GO-2026-6348.
   a Pareto choice under the frozen gates; section 6 lists the tradeoffs.
 - Not claimed: GitLab support, Codeberg-hosted live runs (the same
   software was exercised self-hosted), server-side immutability on Forgejo.
+
+## 8. Addendum: measurements made after the first pipelines ran
+
+### E11. Build-and-pack time versus GoReleaser (controlled, same machine)
+
+Same commit (623bfe29), same six targets, same flags (`-trimpath`,
+`CGO_ENABLED=0`, `-s -w -buildid=`), same module cache, 32-core machine,
+three runs each, alternating; GoReleaser 2.15.4 with `parallelism 8`,
+ours with the six `go build` + `release-me pack` invocations in parallel.
+
+| Condition | release-me (go build + pack) | GoReleaser (`release --snapshot`) |
+| --- | --- | --- |
+| Cold `GOCACHE` | 17.2, 17.6, 24.2 s (first run includes cache warm-up) | 17.2, 17.4, 25.0 s |
+| Warm `GOCACHE` | 1.78, 1.82, 1.85 s | 1.68, 1.72, 1.72 s |
+
+The two are within noise of each other: compilation dominates and both
+run the same compiler. The difference is in what is produced, not how
+fast: GoReleaser's default tarball records the build user's uid, gid and
+names (`quince/users`) and each file's on-disk modification time (the
+LICENSE at 13:30, the binary at 13:23), so it is reproducible only on the
+same machine and account (its two runs here were identical), while
+`release-me pack` writes `0/0` and one fixed time and reproduced the same
+bytes on GitHub-hosted x86-64 and arm64 runners, on this machine with Nix,
+on this machine without Nix, and on the Forgejo runner. Archive sizes:
+7,878,851 bytes (ours, gzip level 9) versus 7,906,859 bytes (GoReleaser)
+for linux_amd64.
+
+Not measured: GoReleaser's publish phase, because it does not implement
+the same publication semantics (no re-download check), so a timing
+comparison would not compare like with like.
