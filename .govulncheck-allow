@@ -1,0 +1,1 @@
+GO-2026-5932 golang.org/x/crypto/openpgp is deprecated and flagged as unsafe by design; it reaches this binary only through package init and error-type methods of sigstore-go's dependencies, no OpenPGP data is ever parsed here, and the advisory has no fixed version. Reviewed 2026-09-24.

@@ -3,9 +3,11 @@
 # OIDC token the public Sigstore instance trusts, so the manifest and the
 # provenance are signed with an Ed25519 release key held as a repository
 # secret (RELEASE_SIGNING_KEY, an unencrypted OpenSSH private key) and
-# verified against allowed_signers; the job token has write access to the
-# repository's releases. The job runs on a runner with the "self-hosted:host"
-# label with Nix installed.
+# verified against allowed_signers. Publishing uses an API token with the
+# write:repository scope held as the RELEASE_TOKEN secret: the job token can
+# create releases but is not accepted on the web route that serves draft
+# attachments, and the tool re-downloads every asset before publishing. The
+# job runs on a runner with the "self-hosted:host" label with Nix installed.
 name: Release
 
 on:
@@ -68,7 +70,7 @@ jobs:
           ls -l dist/
       - name: Create draft release, upload and check assets, publish
         env:
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
           SERVER: ${{ github.server_url }}

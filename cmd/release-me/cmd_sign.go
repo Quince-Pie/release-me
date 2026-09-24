@@ -30,6 +30,7 @@ func cmdProvenance(_ context.Context, args []string) error {
 	started := fs.String("started", "", "build start time (RFC3339 or epoch)")
 	finished := fs.String("finished", "", "build finish time (RFC3339 or epoch)")
 	out := fs.String("out", "", "statement file to write")
+	buildType := fs.String("build-type", "auto", "release-me, github-actions, or auto (github-actions when running in GitHub Actions)")
 	var toolchain multiFlag
 	fs.Var(&toolchain, "toolchain", "toolchain pin as name=uri (repeatable)")
 	if _, err := parseInterspersed(fs, args); err != nil {
@@ -61,6 +62,11 @@ func cmdProvenance(_ context.Context, args []string) error {
 		Command:   *command,
 		Toolchain: map[string]string{},
 		Builder:   *builder, Platform: *platform, InvocationID: *invocation, ToolVersion: version,
+	}
+	if (*buildType == "auto" && *platform == "github") || *buildType == "github-actions" {
+		in.GitHub = gitHubWorkflowContext()
+	} else if *buildType != "auto" && *buildType != "release-me" {
+		return fmt.Errorf("provenance: --build-type must be auto, release-me or github-actions")
 	}
 	for _, kv := range toolchain {
 		k, v, ok := strings.Cut(kv, "=")
@@ -272,4 +278,23 @@ func cmdTrustedRoot(_ context.Context, args []string) error {
 		return err
 	}
 	return os.WriteFile(*out, data, 0o644)
+}
+
+// gitHubWorkflowContext reads the Actions run description from the
+// environment variables GitHub sets for every job.
+func gitHubWorkflowContext() *intoto.GitHubWorkflow {
+	ref := os.Getenv("GITHUB_WORKFLOW_REF") // owner/repo/.github/workflows/x.yml@refs/tags/v1
+	path := ""
+	if i := strings.Index(ref, "/.github/"); i >= 0 {
+		path = strings.TrimSuffix(ref[i+1:], "@"+os.Getenv("GITHUB_REF"))
+		if j := strings.LastIndex(path, "@"); j >= 0 {
+			path = path[:j]
+		}
+	}
+	return &intoto.GitHubWorkflow{
+		ServerURL: os.Getenv("GITHUB_SERVER_URL"), Repository: os.Getenv("GITHUB_REPOSITORY"), Ref: os.Getenv("GITHUB_REF"),
+		WorkflowPath: path, WorkflowRef: ref, EventName: os.Getenv("GITHUB_EVENT_NAME"),
+		RepositoryID: os.Getenv("GITHUB_REPOSITORY_ID"), RepositoryOwnerID: os.Getenv("GITHUB_REPOSITORY_OWNER_ID"),
+		RunnerEnvironment: os.Getenv("RUNNER_ENVIRONMENT"), RunID: os.Getenv("GITHUB_RUN_ID"), RunAttempt: os.Getenv("GITHUB_RUN_ATTEMPT"),
+	}
 }

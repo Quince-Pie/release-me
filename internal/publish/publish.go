@@ -52,6 +52,10 @@ type Options struct {
 	Logf              func(format string, args ...any)
 	// Rounds bounds the reconcile loop (default 4).
 	Rounds int
+
+	// verified memoizes assets whose bytes were downloaded and hashed during
+	// this run, by platform asset id, so that each asset is fetched once.
+	verified map[int64]string
 }
 
 // LocalAsset is a file to publish.
@@ -346,6 +350,9 @@ func (o *Options) reconcile(ctx context.Context, rel *host.Release, assets []Loc
 		default:
 			s := group[0]
 			if err := o.check(ctx, rel, s, want, !o.TrustServerDigest); err != nil {
+				if !errors.As(err, new(errMismatch)) {
+					return false, fmt.Errorf("publish: cannot check stored asset %s (id %d): %w (the token must be able to download draft assets)", s.Name, s.ID, err)
+				}
 				o.logf("stored asset %s (id %d) is not the local file: %v; deleting", s.Name, s.ID, err)
 				if err := o.Host.DeleteAsset(ctx, rel, s); err != nil {
 					return false, err
@@ -411,23 +418,33 @@ func (o *Options) upload(ctx context.Context, rel *host.Release, a LocalAsset) e
 	return nil
 }
 
+// errMismatch marks a stored asset whose content differs from the local
+// file; any other error from check is an access failure that must stop the
+// run rather than trigger a delete-and-reupload cycle.
+type errMismatch struct{ err error }
+
+func (e errMismatch) Error() string { return e.err.Error() }
+
 // check verifies one stored asset against the local file: state, size, the
 // platform digest when there is one, and the bytes themselves unless the
 // caller trusts a matching platform digest.
 func (o *Options) check(ctx context.Context, rel *host.Release, s host.Asset, want LocalAsset, download bool) error {
 	if s.State != "" && s.State != "uploaded" {
-		return fmt.Errorf("state %q", s.State)
+		return errMismatch{fmt.Errorf("state %q", s.State)}
 	}
 	if s.Size != want.Size {
-		return fmt.Errorf("size %d, local %d", s.Size, want.Size)
+		return errMismatch{fmt.Errorf("size %d, local %d", s.Size, want.Size)}
 	}
 	if s.Digest != "" {
 		if s.Digest != "sha256:"+want.SHA256 {
-			return fmt.Errorf("server digest %s, local sha256:%s", s.Digest, want.SHA256)
+			return errMismatch{fmt.Errorf("server digest %s, local sha256:%s", s.Digest, want.SHA256)}
 		}
 		if !download {
 			return nil
 		}
+	}
+	if o.verified != nil && o.verified[s.ID] == want.SHA256 {
+		return nil // downloaded and hashed earlier in this run; ids never change bytes
 	}
 	rc, err := o.Host.OpenAsset(ctx, rel, s)
 	if err != nil {
@@ -439,8 +456,12 @@ func (o *Options) check(ctx context.Context, rel *host.Release, s host.Asset, wa
 		return fmt.Errorf("download: %w", err)
 	}
 	if sum != want.SHA256 {
-		return fmt.Errorf("downloaded bytes hash to %s, local %s", sum, want.SHA256)
+		return errMismatch{fmt.Errorf("downloaded bytes hash to %s, local %s", sum, want.SHA256)}
 	}
+	if o.verified == nil {
+		o.verified = map[int64]string{}
+	}
+	o.verified[s.ID] = sum
 	return nil
 }
 

@@ -325,10 +325,10 @@ func Run(ctx context.Context, o Options) (*Report, error) {
 		if p.Source != "" && src.URI != p.Source+"@refs/tags/"+o.Tag {
 			return nil, fmt.Errorf("verify: provenance source %s is not %s@refs/tags/%s", src.URI, p.Source, o.Tag)
 		}
-		if pred.BuildDefinition.BuildType != intoto.BuildType {
+		if !intoto.KnownBuildType(pred.BuildDefinition.BuildType) {
 			return nil, fmt.Errorf("verify: unexpected build type %s", pred.BuildDefinition.BuildType)
 		}
-		cmd, _ := pred.BuildDefinition.ExternalParameters["buildCommand"].(string)
+		cmd := pred.BuildCommand()
 		report.Provenance = &ProvenanceReport{SourceURI: src.URI, Commit: src.Commit, Builder: pred.RunDetails.Builder.ID, BuildType: pred.BuildDefinition.BuildType, Command: cmd}
 		report.Checks = append(report.Checks, fmt.Sprintf("provenance: %s at %s built by %s", src.URI, src.Commit, pred.RunDetails.Builder.ID))
 	}

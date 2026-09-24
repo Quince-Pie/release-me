@@ -96,6 +96,8 @@ type BuildInputs struct {
 	Finished     time.Time
 	// ToolVersion is this tool's version string.
 	ToolVersion string
+	// GitHub, when set, selects the GitHub Actions build type (see github.go).
+	GitHub *GitHubWorkflow
 }
 
 // ProvenanceStatement builds the statement for a manifest: every manifest
@@ -104,7 +106,7 @@ func ProvenanceStatement(m *manifest.Manifest, in BuildInputs) (*Statement, erro
 	if in.Source.URI == "" || in.Source.Commit == "" || in.Source.Tag == "" {
 		return nil, errors.New("provenance: source uri, commit and tag are required")
 	}
-	if in.Builder == "" {
+	if in.Builder == "" && in.GitHub == nil {
 		return nil, errors.New("provenance: builder id is required")
 	}
 	if len(m.Entries) == 0 {
@@ -113,6 +115,16 @@ func ProvenanceStatement(m *manifest.Manifest, in BuildInputs) (*Statement, erro
 	subjects := make([]ResourceDescriptor, 0, len(m.Entries))
 	for _, e := range m.Entries {
 		subjects = append(subjects, ResourceDescriptor{Name: e.Name, Digest: map[string]string{"sha256": e.SHA256}})
+	}
+	if in.GitHub != nil {
+		p, err := gitHubProvenance(in, in.GitHub)
+		if err != nil {
+			return nil, err
+		}
+		if p.RunDetails.Builder.ID == "" {
+			return nil, errors.New("provenance: builder id is required")
+		}
+		return &Statement{Type: StatementType, Subject: subjects, PredicateType: ProvenanceType, Predicate: p}, nil
 	}
 	ext := map[string]any{
 		"source": map[string]any{
@@ -127,14 +139,7 @@ func ProvenanceStatement(m *manifest.Manifest, in BuildInputs) (*Statement, erro
 		URI:    in.Source.URI,
 		Digest: map[string]string{"gitCommit": in.Source.Commit},
 	}}
-	keys := make([]string, 0, len(in.Toolchain))
-	for k := range in.Toolchain {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		deps = append(deps, ResourceDescriptor{Name: k, URI: in.Toolchain[k]})
-	}
+	deps = append(deps, toolchainDeps(in)...)
 	p := Provenance{
 		BuildDefinition: BuildDefinition{
 			BuildType:            BuildType,
@@ -215,6 +220,9 @@ func (s *Statement) ProvenancePredicate() (*Provenance, error) {
 
 // SourceOf extracts the source description from a provenance predicate.
 func (p *Provenance) SourceOf() (Source, error) {
+	if p.BuildDefinition.BuildType == GitHubBuildType {
+		return p.sourceFromGitHub()
+	}
 	src, _ := p.BuildDefinition.ExternalParameters["source"].(map[string]any)
 	if src == nil {
 		return Source{}, errors.New("provenance: no externalParameters.source")
@@ -242,4 +250,19 @@ func ParseStatementLoose(data []byte) (*Statement, error) {
 		return nil, errors.New("statement: no subjects")
 	}
 	return &s, nil
+}
+
+// toolchainDeps renders the declared toolchain pins as resolved
+// dependencies, in name order so the statement is deterministic.
+func toolchainDeps(in BuildInputs) []ResourceDescriptor {
+	keys := make([]string, 0, len(in.Toolchain))
+	for k := range in.Toolchain {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	deps := make([]ResourceDescriptor, 0, len(keys))
+	for _, k := range keys {
+		deps = append(deps, ResourceDescriptor{Name: k, URI: in.Toolchain[k]})
+	}
+	return deps
 }

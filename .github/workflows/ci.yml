@@ -83,4 +83,4 @@ jobs:
       - name: Install Nix (pinned, first-party)
         run: scripts/install-nix.sh
       - name: Scan for known vulnerabilities reachable from the code
-        run: nix develop --command govulncheck ./...
+        run: nix develop --command scripts/vulncheck.sh

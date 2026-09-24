@@ -57,3 +57,45 @@ func TestProvenanceRoundTrip(t *testing.T) {
 		t.Error("missing inputs accepted")
 	}
 }
+
+func TestGitHubBuildType(t *testing.T) {
+	m, _ := manifest.Parse(strings.NewReader(strings.Repeat("a", 64) + "  x.tar.gz\n"))
+	in := BuildInputs{
+		Source:  Source{URI: "git+https://github.com/o/r@refs/tags/v1.0.0", Commit: "c0ffee", Tag: "v1.0.0"},
+		Command: "nix build", ToolVersion: "t", Platform: "github",
+		GitHub: &GitHubWorkflow{ServerURL: "https://github.com", Repository: "o/r", Ref: "refs/tags/v1.0.0",
+			WorkflowPath: ".github/workflows/release.yml", WorkflowRef: "o/r/.github/workflows/release.yml@refs/tags/v1.0.0",
+			EventName: "push", RepositoryID: "1", RepositoryOwnerID: "2", RunnerEnvironment: "github-hosted", RunID: "7", RunAttempt: "1"},
+	}
+	st, err := ProvenanceStatement(m, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := st.Marshal()
+	back, _ := ParseStatement(data)
+	p, err := back.ProvenancePredicate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BuildDefinition.BuildType != GitHubBuildType || p.RunDetails.Builder.ID != "https://github.com/o/r/.github/workflows/release.yml@refs/tags/v1.0.0" || p.RunDetails.Metadata.InvocationID != "https://github.com/o/r/actions/runs/7/attempts/1" {
+		t.Errorf("predicate %+v", p)
+	}
+	src, err := p.SourceOf()
+	if err != nil || src != in.Source {
+		t.Errorf("source %+v %v", src, err)
+	}
+	if p.BuildCommand() != "nix build" {
+		t.Errorf("build command %q", p.BuildCommand())
+	}
+	// A workflow ref that is not the release tag is refused.
+	in.GitHub.Ref = "refs/heads/main"
+	if _, err := ProvenanceStatement(m, in); err == nil {
+		t.Error("mismatched workflow ref accepted")
+	}
+	// Tampered resolved dependency disagreeing with release parameters.
+	p.BuildDefinition.ResolvedDependencies[0].URI = "git+https://github.com/o/r@refs/tags/v0.9.0"
+	p.BuildDefinition.ExternalParameters["workflow"].(map[string]any)["ref"] = "refs/tags/v0.9.0"
+	if _, err := p.SourceOf(); err == nil {
+		t.Error("disagreeing release.source accepted")
+	}
+}

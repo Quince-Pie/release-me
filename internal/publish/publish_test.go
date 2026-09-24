@@ -330,3 +330,29 @@ type limited struct {
 }
 
 func (l limited) Limits(context.Context) (host.Limits, error) { return l.l, nil }
+
+// A token that can upload but cannot download draft assets (Forgejo's
+// Actions job token on the web download route) must stop the run at once,
+// not delete and re-upload every asset for four rounds.
+func TestDownloadFailureIsFatalNotReplaced(t *testing.T) {
+	for _, kind := range kinds() {
+		t.Run(string(kind), func(t *testing.T) {
+			e := setup(t, kind)
+			part := "/objects/"
+			if kind == fake.Forgejo {
+				part = "/attachments/"
+			}
+			e.s.AddFault(fake.Fault{Method: "GET", PathPart: part, Status: 404, Remaining: 1000})
+			_, err := Run(context.Background(), e.opts)
+			if err == nil || !strings.Contains(err.Error(), "cannot check stored asset") {
+				t.Fatalf("expected a fatal download error, got %v", err)
+			}
+			if n := e.s.Count("DELETE"); n != 0 {
+				t.Fatalf("%d assets were deleted despite the access failure", n)
+			}
+			if n := e.s.Count("POST"); n != 5 { // 1 draft + 4 uploads, once
+				t.Fatalf("%d POSTs, want 5 (no re-uploads)", n)
+			}
+		})
+	}
+}
