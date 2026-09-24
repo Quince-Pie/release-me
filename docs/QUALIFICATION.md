@@ -312,3 +312,47 @@ for linux_amd64.
 Not measured: GoReleaser's publish phase, because it does not implement
 the same publication semantics (no re-download check), so a timing
 comparison would not compare like with like.
+
+### E12. Release v0.1.0 on both hosts
+
+Tag `v0.1.0` (commit b3abe43b, "Release 0.1.0") was created with
+`release-me tag create` (SSH-signed by the maintainer key, verified locally
+against `allowed_signers`) and pushed to GitHub and to the local Forgejo at
+18:52:23 UTC.
+
+- **GitHub** run 36044247456: `Verify tag and build` 5.2 min (x86-64) and
+  3.5 min (arm64) in parallel, `Attest and publish` 1.7 min, `Verify as a
+  recipient` 5.0 min (downloads the published release, verifies the
+  bundle, rebuilds from the tag with Nix and compares); 12.3 min end to
+  end, about 15.4 runner-minutes. Release 395984052: nine assets, each
+  with a platform digest equal to the manifest entry; `immutable: false`
+  because the repository setting was left to its owner.
+- **Forgejo** run 3: 75 s on the self-hosted runner (warm Nix store);
+  release 5 with ten assets (the six archives, `SHA256SUMS`,
+  `SHA256SUMS.sig`, the provenance statement and its signature).
+- **Recipient verification from a fresh worktree, with no tokens in the
+  environment.** GitHub: 6 assets match `SHA256SUMS`; Sigstore bundle
+  signed by `https://github.com/Quince-Pie/release-me/.github/workflows/
+  release.yml@refs/tags/v0.1.0`, issuer
+  `https://token.actions.githubusercontent.com`, two verified timestamps
+  (Rekor integrated time and RFC 3161); provenance (GitHub build type) for
+  `git+https://github.com/Quince-Pie/release-me@refs/tags/v0.1.0` at
+  b3abe43b, build command `nix build .#release-assets`; **rebuilt assets
+  byte-identical to the published ones**. Forgejo: 6 assets match;
+  `SHA256SUMS` and the provenance signed by `release-me-forgejo-ci`;
+  provenance for the same commit built by the Forgejo workflow identity.
+- **Standard tools.** `cosign verify-blob-attestation … --type
+  slsaprovenance1` on `release-me_0.1.0_linux_amd64.tar.gz`: `Verified OK`.
+  `gh attestation verify … --repo Quince-Pie/release-me --cert-identity …`
+  (online, through the attestation index): exit 0. The same with
+  `--bundle release-me_0.1.0_provenance.sigstore.json --custom-trusted-root
+  <gh attestation trusted-root output>` and no token (offline): exit 0.
+  `ssh-keygen -Y verify -f allowed_signers -I release-me-forgejo-ci -n
+  release -s SHA256SUMS.sig < SHA256SUMS` on the Forgejo release: `Good
+  "release" signature`.
+- **Cross-host reproduction.** The `SHA256SUMS` published on GitHub (built
+  on GitHub-hosted x86-64 and arm64 runners) and the one published on
+  Forgejo (built by the local runner) are identical: four independent
+  builders, three machines, two CPU architectures, one payload.
+
+CI on the release commit (run 36044243575) passed on both architectures.
